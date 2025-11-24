@@ -242,7 +242,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         ProductSku productSku = null;
         // 2. 如果缓存中有数据，则直接返回
         if(redisTemplate.hasKey(key)){
-            System.out.println("缓存中有数据");
+            log.info(String.format("线程: id %s, name %s 从缓存中获取数据", Thread.currentThread().getId() ,Thread.currentThread().getName()));
             productSku = (ProductSku)redisTemplate.opsForValue().get(key);
             return productSku;
         }else{
@@ -256,6 +256,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                 // 3.2 如果获得锁成功，则执行业务逻辑，并返回结果
                 if(flag){
                     productSku = getProductFromDb(skuId);
+                    log.info(String.format("线程: id %d, name %s 从数据库中获取数据", Thread.currentThread().getId() ,Thread.currentThread().getName()));
                     redisTemplate.opsForValue().set(key, productSku, 30 + new Random().nextInt(10), TimeUnit.MINUTES);
                     return productSku;
                 }else{

@@ -19,6 +19,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Supplier;
 
 @Service
 @Slf4j
@@ -31,74 +34,95 @@ public class ItemServiceImpl implements IItemService {
     private RedisTemplate redisTemplate;
 
     @Autowired
+    private ThreadPoolExecutor pool;
+
     @Override
     public ItemVo item(Long skuId) throws Exception {
 
         // 使用bitmap判断当前数据是否在数据库中
-
         String key = "sku:product:list";
         if(!redisTemplate.opsForValue().getBit(key, skuId)){
             throw new ServiceException("商品不存在");
         }
 
         ItemVo itemVo = new ItemVo();
-        //任务1.获取sku信息
-        R<ProductSku> productSkuResult = remoteProductService.getProductSku(skuId, SecurityConstants.INNER);
-        if (R.FAIL == productSkuResult.getCode()) {
-            throw new ServiceException(productSkuResult.getMsg());
-        }
-        ProductSku productSku = productSkuResult.getData();
-        itemVo.setProductSku(productSku);
+        CompletableFuture<ProductSku> task1 = CompletableFuture.supplyAsync(() -> {
+            //任务1.获取sku信息
+            R<ProductSku> productSkuResult = remoteProductService.getProductSku(skuId, SecurityConstants.INNER);
+            if (R.FAIL == productSkuResult.getCode()) {
+                throw new ServiceException(productSkuResult.getMsg());
+            }
+            ProductSku productSku = productSkuResult.getData();
+            itemVo.setProductSku(productSku);
+            return productSku;
+        }, pool);
+
+        CompletableFuture<Void> task2 = task1.thenAcceptAsync(productSku -> {
+            //任务2.获取商品信息
+            R<Product> productResult = remoteProductService.getProduct(productSku.getProductId(), SecurityConstants.INNER);
+            if (R.FAIL == productResult.getCode()) {
+                throw new ServiceException(productResult.getMsg());
+            }
+            Product product = productResult.getData();
+            itemVo.setProduct(product);
+            itemVo.setSliderUrlList(Arrays.asList(product.getSliderUrls().split(",")));
+            itemVo.setSpecValueList(JSON.parseArray(product.getSpecValue()));
+        }, pool);
 
 
-        //任务2.获取商品信息
-        R<Product> productResult = remoteProductService.getProduct(productSku.getProductId(), SecurityConstants.INNER);
-        if (R.FAIL == productResult.getCode()) {
-            throw new ServiceException(productResult.getMsg());
-        }
-        Product product = productResult.getData();
-        itemVo.setProduct(product);
-        itemVo.setSliderUrlList(Arrays.asList(product.getSliderUrls().split(",")));
-        itemVo.setSpecValueList(JSON.parseArray(product.getSpecValue()));
 
 
-        //任务3.获取商品最新价格
-        R<SkuPrice> skuPriceResult = remoteProductService.getSkuPrice(skuId, SecurityConstants.INNER);
-        if (R.FAIL == skuPriceResult.getCode()) {
-            throw new ServiceException(skuPriceResult.getMsg());
-        }
-        SkuPrice skuPrice = skuPriceResult.getData();
-        itemVo.setSkuPrice(skuPrice);
+        CompletableFuture<Void> task3 = CompletableFuture.runAsync(() -> {
+            //任务3.获取商品最新价格
+            R<SkuPrice> skuPriceResult = remoteProductService.getSkuPrice(skuId, SecurityConstants.INNER);
+            if (R.FAIL == skuPriceResult.getCode()) {
+                throw new ServiceException(skuPriceResult.getMsg());
+            }
+            SkuPrice skuPrice = skuPriceResult.getData();
+            itemVo.setSkuPrice(skuPrice);
+        },  pool);
 
 
-        //任务4.获取商品详情
-        R<ProductDetails> productDetailsResult = remoteProductService.getProductDetails(productSku.getProductId(), SecurityConstants.INNER);
-        if (R.FAIL == productDetailsResult.getCode()) {
-            throw new ServiceException(productDetailsResult.getMsg());
-        }
-        ProductDetails productDetails = productDetailsResult.getData();
-        itemVo.setDetailsImageUrlList(Arrays.asList(productDetails.getImageUrls().split(",")));
+        CompletableFuture<Void> task4 = task1.thenAcceptAsync(productSku -> {
+            //任务4.获取商品详情
+            R<ProductDetails> productDetailsResult = remoteProductService.getProductDetails(productSku.getProductId(), SecurityConstants.INNER);
+            if (R.FAIL == productDetailsResult.getCode()) {
+                throw new ServiceException(productDetailsResult.getMsg());
+            }
+            ProductDetails productDetails = productDetailsResult.getData();
+            itemVo.setDetailsImageUrlList(Arrays.asList(productDetails.getImageUrls().split(",")));
+        }, pool);
+
+        CompletableFuture<Void> task5 = task1.thenAcceptAsync(productSku -> {
+            //任务5.获取商品规格对应商品skuId信息
+            R<Map<String, Long>> skuSpecValueResult = remoteProductService.getSkuSpecValue(productSku.getProductId(), SecurityConstants.INNER);
+            if (R.FAIL == skuSpecValueResult.getCode()) {
+                throw new ServiceException(skuSpecValueResult.getMsg());
+            }
+            Map<String, Long> skuSpecValueMap = skuSpecValueResult.getData();
+            itemVo.setSkuSpecValueMap(skuSpecValueMap);
+        }, pool);
+
+       CompletableFuture<Void> task6 = task1.thenAcceptAsync(productSku -> {
+           //任务6.获取商品库存信息
+           R<SkuStockVo> skuStockResult = remoteProductService.getSkuStock(skuId, SecurityConstants.INNER);
+           if (R.FAIL == skuStockResult.getCode()) {
+               throw new ServiceException(skuStockResult.getMsg());
+           }
+           SkuStockVo skuStockVo = skuStockResult.getData();
+           itemVo.setSkuStockVo(skuStockVo);
+           productSku.setStockNum(skuStockVo.getAvailableNum());
+       }, pool);
 
 
-        //任务5.获取商品规格对应商品skuId信息
-        R<Map<String, Long>> skuSpecValueResult = remoteProductService.getSkuSpecValue(productSku.getProductId(), SecurityConstants.INNER);
-        if (R.FAIL == skuSpecValueResult.getCode()) {
-            throw new ServiceException(skuSpecValueResult.getMsg());
-        }
-        Map<String, Long> skuSpecValueMap = skuSpecValueResult.getData();
-        itemVo.setSkuSpecValueMap(skuSpecValueMap);
-
-
-        //任务6.获取商品库存信息
-        R<SkuStockVo> skuStockResult = remoteProductService.getSkuStock(skuId, SecurityConstants.INNER);
-        if (R.FAIL == skuStockResult.getCode()) {
-            throw new ServiceException(skuStockResult.getMsg());
-        }
-        SkuStockVo skuStockVo = skuStockResult.getData();
-        itemVo.setSkuStockVo(skuStockVo);
-        productSku.setStockNum(skuStockVo.getAvailableNum());
-
-
+        CompletableFuture.allOf(
+                task1,
+                task2,
+                task3,
+                task4,
+                task5,
+                task6
+        ).join();
 
         return itemVo;
 
