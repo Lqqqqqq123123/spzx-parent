@@ -57,6 +57,7 @@ public class ProductController extends BaseController {
     @Operation(summary = "新增商品")
     @PostMapping
     public AjaxResult add(@RequestBody Product product) {
+        // todo 新增商品需要修改位图
         product.setCreateBy(SecurityUtils.getUsername());
         return toAjax(productService.insertProduct(product));
     }
@@ -81,6 +82,7 @@ public class ProductController extends BaseController {
     @Operation(summary = "修改商品")
     @PutMapping
     public AjaxResult edit(@RequestBody Product product) {
+        // todo 如果修改为下架或者上架，也需要修改位图
         product.setUpdateBy(SecurityUtils.getUsername());
         return toAjax(productService.updateProduct(product));
     }
@@ -95,6 +97,7 @@ public class ProductController extends BaseController {
     @Operation(summary = "删除商品")
     @DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids) {
+        // todo 删除商品需要修改位图
         return toAjax(productService.deleteProductByIds(ids));
     }
 

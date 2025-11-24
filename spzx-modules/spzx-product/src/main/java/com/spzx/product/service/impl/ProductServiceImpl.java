@@ -19,11 +19,13 @@ import com.spzx.product.service.IProductService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -81,6 +83,10 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             productSku.setSkuName(product.getName() + " " + productSku.getSkuSpec());
             productSku.setProductId(product.getId());
             productSkuMapper.insert(productSku);
+
+            // 修改位图
+//            String key = "sku:product:list";
+//            redisTemplate.opsForValue().setBit(key, productSku.getId(), true);
 
             //添加商品库存  //3.保存List<SkuStock>对象到sku_stock表
             SkuStock skuStock = new SkuStock();
@@ -231,7 +237,53 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
     @Override
     public ProductSku getProductSku(Long skuId) {
-        return productSkuMapper.selectById(skuId);
+        // 1. 判断缓存中是否有数据
+        String key = "product:sku" + skuId;
+        ProductSku productSku = null;
+        // 2. 如果缓存中有数据，则直接返回
+        if(redisTemplate.hasKey(key)){
+            System.out.println("缓存中有数据");
+            productSku = (ProductSku)redisTemplate.opsForValue().get(key);
+            return productSku;
+        }else{
+            // 3. 如果缓存中没有数据，则从数据库中查询，并放入缓存中
+            // 这里防止多个线程访问数据库，所以要加分布式锁
+            String lockKey = "product:sku:lock" + skuId;
+            String uuid = UUID.randomUUID().toString().replaceAll("-", "");
+            try {
+                // 3.1 获得锁
+                boolean flag = redisTemplate.opsForValue().setIfAbsent(lockKey, uuid, 30, TimeUnit.SECONDS);
+                // 3.2 如果获得锁成功，则执行业务逻辑，并返回结果
+                if(flag){
+                    productSku = getProductFromDb(skuId);
+                    redisTemplate.opsForValue().set(key, productSku, 30 + new Random().nextInt(10), TimeUnit.MINUTES);
+                    return productSku;
+                }else{
+                    // 3.3 如果获得锁失败，则自旋
+                    Thread.sleep(200);
+                    return getProductSku(skuId);
+                }
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } finally {
+                // 3.4 释放锁
+                // 记得判断以下当前锁是不是自己的
+                String luaScript = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+                redisTemplate.execute(
+                        new DefaultRedisScript(luaScript, Long.class),
+                        Collections.singletonList(lockKey),
+                        uuid
+                );
+            }
+        }
+    }
+
+
+
+    private ProductSku getProductFromDb(Long skuId) {
+
+        ProductSku productSku = productSkuMapper.selectById(skuId);
+        return productSku;
     }
 
 

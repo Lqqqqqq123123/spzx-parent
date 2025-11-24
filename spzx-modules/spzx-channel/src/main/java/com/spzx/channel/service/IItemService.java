@@ -4,6 +4,6 @@ import com.spzx.channel.domain.ItemVo;
 
 import java.util.concurrent.ExecutionException;
 
-public interface IItemService {
+public interface  IItemService {
     ItemVo item(Long skuId) throws Exception;
 }

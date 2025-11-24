@@ -44,6 +44,7 @@ public class BaseEntity implements Serializable
 
     /** 更新时间 */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @TableField
     private Date updateTime;
 
     /** 备注 */
