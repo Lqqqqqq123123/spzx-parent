@@ -16,4 +16,5 @@ public interface RemoteUserAddressService {
 
     @GetMapping(value = "/userAddress/getUserAddress/{id}")
     public R<UserAddress> getUserAddress(@PathVariable("id") Long id, @RequestHeader(SecurityConstants.FROM_SOURCE) String source);
+
 }

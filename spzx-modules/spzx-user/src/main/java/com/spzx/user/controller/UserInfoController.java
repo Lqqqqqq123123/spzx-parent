@@ -83,6 +83,9 @@ public class UserInfoController extends BaseController {
     }
 
 
+
+
+
     @InnerAuth
     @PostMapping("/register")
     public R<Boolean> register(@RequestBody UserInfo userInfo) {

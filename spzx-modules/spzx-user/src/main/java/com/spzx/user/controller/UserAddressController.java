@@ -74,4 +74,6 @@ public class UserAddressController extends BaseController {
     public R<UserAddress> getUserAddress(@PathVariable("id") Long id) {
         return R.ok(userAddressService.getById(id));
     }
+
+
 }

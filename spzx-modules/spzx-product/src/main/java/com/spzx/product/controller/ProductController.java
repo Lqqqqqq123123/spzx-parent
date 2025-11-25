@@ -189,6 +189,15 @@ public class ProductController extends BaseController {
     public R<SkuStockVo> getSkuStock(@PathVariable("skuId") Long skuId) {
         return R.ok(productService.getSkuStock(skuId));
     }
+
+
+    @Operation(summary = "批量获取商品sku最新价格信息")
+    @InnerAuth
+    @PostMapping(value = "/getSkuPriceList")
+    public R<List<SkuPrice>> getSkuPriceList(@RequestBody List<Long> skuIdList)
+    {
+        return R.ok(productService.getSkuPriceList(skuIdList));
+    }
     //----详情 end------------------------------
 
 }

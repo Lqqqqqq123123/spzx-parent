@@ -20,6 +20,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -66,6 +67,21 @@ public class OrderInfoController extends BaseController {
         return success(orderInfoService.selectOrderInfoById(id));
     }
 
+
+    @Operation(summary = "订单结算")
+    @RequiresLogin
+    @GetMapping("/trade")
+    public AjaxResult orderTradeData() {
+        return success(orderInfoService.orderTradeData());
+    }
+
+
+    @Operation(summary = "用户提交订单")
+    @RequiresLogin
+    @PostMapping("/submitOrder")
+    public AjaxResult submitOrder(@Validated @RequestBody OrderForm orderForm) {
+        return success(orderInfoService.submitOrder(orderForm));
+    }
 
 
 }

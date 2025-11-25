@@ -1,5 +1,6 @@
 package com.spzx.order.api.factory;
 
+import com.spzx.common.core.web.domain.AjaxResult;
 import com.spzx.order.api.RemoteOrderInfoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
