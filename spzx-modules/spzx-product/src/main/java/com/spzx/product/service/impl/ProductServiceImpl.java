@@ -7,6 +7,7 @@ import com.spzx.common.core.utils.bean.BeanUtils;
 import com.spzx.product.api.domain.Product;
 import com.spzx.product.api.domain.ProductDetails;
 import com.spzx.product.api.domain.ProductSku;
+import com.spzx.product.api.domain.vo.SkuLockVo;
 import com.spzx.product.api.domain.vo.SkuPrice;
 import com.spzx.product.api.domain.vo.SkuQuery;
 import com.spzx.product.api.domain.vo.SkuStockVo;
@@ -349,6 +350,144 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
             skuPrice.setMarketPrice(sku.getMarketPrice());
             return skuPrice;
         }).toList();
+    }
+
+    @Override
+    @Transactional
+    public String checkAndLock(String orderNo, List<SkuLockVo> skuLockVoList) {
+
+        // 1. 去重处理：openfeign 的重试机制可能会导致重复请求，导致重复扣减库存，因此需要做去重处理，保证幂等性
+        // 1.1 采用分布式锁来进行去重处理
+        // todo : 锁库存业务的锁
+        String lockKey = "stock:order:"+ orderNo;
+        String dataKey = "stock:lock:" + orderNo; // 记录本次锁定库存的数据，用于解锁或者更新库存
+        // 1.2 为了防止死锁，设置锁的过期时间，防止死锁，同时为了防止锁的误删，故值设置为 orderNo
+
+        // 1.3 获得锁
+        boolean flag = redisTemplate.opsForValue().setIfAbsent(lockKey, orderNo, 30, TimeUnit.SECONDS);
+
+        if(!flag){
+            // 1.4 获得锁失败,则说明有其他线程以及处理了，直接返回成功
+            return "";
+        }
+
+        // 获得锁成功，则执行业务逻辑
+        // 2. 检查库存
+        boolean isEnough = true;
+        StringBuilder msg = new StringBuilder();
+        for (SkuLockVo vo : skuLockVoList) {
+            SkuStock check = skuStockMapper.check(vo.getSkuId(), vo.getSkuNum()); // 检查库存，增加了行锁 for update
+            if(check == null){
+                isEnough = false;
+                msg.append(String.format("商品%d库存不足", vo.getSkuId()));
+                vo.setIsHaveStock(false);
+            }else{
+                vo.setIsHaveStock(true);
+            }
+        }
+        // 3.1 库存足够，锁定库存
+        if(isEnough){
+            // 实际就是去更新当前商品的库存表：update sku_stock set lock_num = lock_num + 2, available_num = available_num - 2 where id = 21 and del_flag = 0
+            for(var vo: skuLockVoList){
+                Long skuId = vo.getSkuId();
+                Integer skuNum = vo.getSkuNum();
+                int affect = skuStockMapper.lock(skuId, skuNum);
+                if(affect == 0){
+                    // 删除分布式锁
+                    redisTemplate.delete(lockKey);
+                    throw new ServiceException(String.format("锁定【%d】商品库存失败", skuId));
+                }
+
+            }
+        }
+        // 3.2 库存不足，返回错误信息
+        else{
+            // 本次事务失败了，我要把锁删掉
+            redisTemplate.delete(lockKey);
+            return msg.toString() ;
+        }
+
+        // 4. 将数据存储到 redis 中，方便解锁或者更新库存
+        redisTemplate.opsForValue().set(dataKey, skuLockVoList, 1, TimeUnit.DAYS); // 之后如果解锁了或者更新库存了，记得删除缓存数据
+        // last: 释放锁(一定要释放锁）
+        redisTemplate.delete(lockKey);
+        return "";
+    }
+
+    @Override
+    @Transactional
+    public void unlock(String orderNo) {
+        // 1. 使用分布式锁保证幂等性
+        String lockKey = "stock:unlock:"+ orderNo;
+        String dataKey = "stock:lock:" + orderNo; // 记录本次锁定库存的数据，用于解锁或者更新库存
+
+        // 1.1 获得锁
+        boolean flag = redisTemplate.opsForValue().setIfAbsent(lockKey, "", 1, TimeUnit.HOURS);
+
+        // 1.2 说明之前以及处理过了，直接返回，确保幂等性
+        if(!flag){
+            return ;
+        }
+
+        // 2. 获得锁成功，则执行业务逻辑：释放库存锁
+        // 2.1 遍历这些锁定的库存数据，然后执行sql即可：update sku_stock set lock_num = lock_num - ?, available_num = available_num + ? where id = x and del_flag = 0
+
+        List<SkuLockVo> list = (List<SkuLockVo>)redisTemplate.opsForValue().get(dataKey);
+        // 没有数据，直接返回
+        if(CollectionUtils.isEmpty(list)){
+            // 释放锁
+            redisTemplate.delete(lockKey);
+            log.warn("当前缓存没有锁库存的SkuLockVo信息");
+            return ;
+        }
+
+
+        for(var vo :  list){
+            // 记录sql是否成功
+            int affect = skuStockMapper.unlock(vo.getSkuId(), vo.getSkuNum());
+            // sql执行失败，直接回滚
+            if(affect == 0){
+                // 释放锁
+                redisTemplate.delete(lockKey);
+                throw new ServiceException("解锁库存失败");
+            }
+        }
+
+        // 解锁成功后，把缓存数据删了
+        redisTemplate.delete(dataKey);
+
+        // 释放锁
+        redisTemplate.delete(lockKey);
+
+    }
+
+    @Transactional(rollbackFor = {Exception.class})
+    @Override
+    public void minus(String orderNo) {
+        String key = "sku:minus:" + orderNo;
+        String dataKey = "stock:lock:" + orderNo; // 记录本次锁定库存的数据，用于解锁或者更新库存
+        //业务去重，防止重复消费
+        Boolean isExist = redisTemplate.opsForValue().setIfAbsent(key, orderNo, 1, TimeUnit.HOURS);
+        if(!isExist) return;
+
+        // 获取锁定库存的缓存信息
+        List<SkuLockVo> skuLockVoList = (List<SkuLockVo>)this.redisTemplate.opsForValue().get(dataKey);
+        if (CollectionUtils.isEmpty(skuLockVoList)){
+            return ;
+        }
+
+        // 减库存
+        skuLockVoList.forEach(skuLockVo -> {
+            int row = skuStockMapper.minus(skuLockVo.getSkuId(), skuLockVo.getSkuNum());
+            if(row == 0) {
+                //解除去重
+                this.redisTemplate.delete(key);
+                throw new ServiceException("减出库失败");
+            }
+        });
+
+        // 解锁库存之后，删除锁定库存的缓存。以防止重复解锁库存
+        this.redisTemplate.delete(dataKey);
     }
 
 }

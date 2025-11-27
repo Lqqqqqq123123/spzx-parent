@@ -31,4 +31,10 @@ public interface IOrderInfoService extends IService<OrderInfo> {
     TradeVo orderTradeData();
 
     Long submitOrder(OrderForm orderForm);
+
+    /**
+     * 接收到了rmq的延迟消息，关闭订单
+     * @param l
+     */
+    void processCloseOrder(Long l);
 }

@@ -7,6 +7,7 @@ import com.spzx.cart.api.domain.CartInfo;
 import com.spzx.common.core.constant.SecurityConstants;
 import com.spzx.common.core.domain.R;
 import com.spzx.common.core.exception.ServiceException;
+import com.spzx.common.rabbit.constant.MqConst;
 import com.spzx.common.rabbit.service.RabbitService;
 import com.spzx.common.security.utils.SecurityUtils;
 import com.spzx.order.api.domain.OrderInfo;
@@ -20,6 +21,7 @@ import com.spzx.order.mapper.OrderLogMapper;
 import com.spzx.order.service.IOrderInfoService;
 import com.spzx.order.service.IOrderItemService;
 import com.spzx.product.api.RemoteProductService;
+import com.spzx.product.api.domain.vo.SkuLockVo;
 import com.spzx.product.api.domain.vo.SkuPrice;
 import com.spzx.user.api.RemoteUserAddressService;
 import com.spzx.user.domain.UserAddress;
@@ -28,15 +30,13 @@ import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -142,6 +142,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
         return tradeVo;
     }
 
+    @Transactional
     @Override
     public Long submitOrder(OrderForm orderForm) {
 
@@ -168,7 +169,6 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
         }
 
         // 2. 校验表单数据是否为空
-         // todo: 直接用注解校验
         // 3. 校验价格是否变化
         List<OrderItem> orderItemList = orderForm.getOrderItemList();
         List<Long> ids = orderItemList.stream().map(OrderItem::getSkuId).toList();
@@ -206,7 +206,30 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
         }
 
 
-        // 4. 校验与锁定库存 todo
+        // 4. 校验与锁定库存 必须同步请求
+        // 先去商品微服务写接口：检查与锁定库存
+        List<SkuLockVo> skuLockVoList = orderItemList.stream()
+                        .map(orderItem -> {
+                            SkuLockVo skuLockVo = new SkuLockVo();
+                            skuLockVo.setSkuId(orderItem.getSkuId());
+                            skuLockVo.setSkuNum(orderItem.getSkuNum());
+                            return skuLockVo;
+                        }).toList();
+
+        R<String> stringR = remoteProductService.checkAndLock(orderForm.getTradeNo(), skuLockVoList, SecurityConstants.INNER);
+        if(stringR.getCode() != R.SUCCESS){
+            throw new ServiceException(stringR.getMsg());
+        }
+
+        String checkResult = stringR.getData();
+        if(StringUtils.hasText(checkResult)){
+            // 4.1 锁定库存失败
+            // 4.1.1 解锁库存（自动回滚）
+            // 4.1.2 抛异常
+            throw new ServiceException(checkResult);
+        }
+
+
 
         Long orderId = -1L;
         // 5. 保存订单
@@ -214,6 +237,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
             orderId = this.saveOrder(orderForm);
         } catch (Exception e) {
             // todo 解锁库存
+            rabbitService.sendMessage(MqConst.EXCHANGE_PRODUCT, MqConst.ROUTING_UNLOCK, orderForm.getTradeNo());
+            // 解锁异步也无所谓，所以可以用小兔子
             throw new ServiceException("保存订单失败");
         }
 
@@ -222,8 +247,37 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
         remoteCartService.deleteCartCheckedList(Long.parseLong(userId), SecurityConstants.INNER);
 
 
-        // 7. 返回订单id
+        // 7. 发送一个延迟消息：30分钟后判断用户是否已支付，没支付需要也需要解锁库存
+        System.out.println("发送到延迟队列:" + new Date());
+        rabbitService.sendDealyMessage(MqConst.ROUTING_CANCEL_ORDER,
+                MqConst.ROUTING_CANCEL_ORDER,
+                String.valueOf(orderId), MqConst.CANCEL_ORDER_DELAY_TIME);
+
+
+        // 8. 返回订单id
         return orderId;
+    }
+
+    @Override
+    @Transactional
+    public void processCloseOrder(Long orderId) {
+        OrderInfo orderInfo = orderInfoMapper.selectById(orderId);
+        if(null != orderInfo && orderInfo.getOrderStatus().intValue() == 0) { //  订单状态orderStatus=0 说明15分钟未支付。
+            orderInfo.setOrderStatus(-1); //  -1 取消订单
+            orderInfo.setCancelTime(new Date());
+            orderInfo.setCancelReason("未支付自动取消");
+            orderInfoMapper.updateById(orderInfo);
+
+            //记录日志
+            OrderLog orderLog = new OrderLog();
+            orderLog.setOrderId(orderInfo.getId());
+            orderLog.setProcessStatus(-1);
+            orderLog.setNote("系统取消订单");
+            orderLogMapper.insert(orderLog);
+
+            //发送MQ消息通知商品系统解锁库存
+            rabbitService.sendMessage(MqConst.EXCHANGE_PRODUCT, MqConst.ROUTING_UNLOCK, orderInfo.getOrderNo());
+        }
     }
 
     @Transactional
@@ -272,6 +326,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
         orderLog.setProcessStatus(0);
         orderLog.setNote("用户下单");
         orderLogMapper.insert(orderLog);
+
+
 
         // 返回订单id
         return orderInfo.getId();

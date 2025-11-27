@@ -70,4 +70,15 @@ public interface RemoteProductService {
     @PostMapping(value = "/product/getSkuPriceList")
     public R<List<SkuPrice>> getSkuPriceList(@RequestBody List<Long> skuIdList, @RequestHeader(SecurityConstants.FROM_SOURCE) String source);
 
+    /**
+     * 锁定库存 返回值非空则表示锁定失败
+     * @param orderNo
+     * @param skuLockVoList
+     * @param source
+     * @return
+     */
+
+    @PostMapping("/product/checkAndLock/{orderNo}")
+    public R<String> checkAndLock(@PathVariable("orderNo") String orderNo, @RequestBody List<SkuLockVo> skuLockVoList, @RequestHeader(SecurityConstants.FROM_SOURCE) String  source);
+
 }

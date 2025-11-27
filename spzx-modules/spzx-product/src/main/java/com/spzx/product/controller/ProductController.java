@@ -200,4 +200,20 @@ public class ProductController extends BaseController {
     }
     //----详情 end------------------------------
 
+    @InnerAuth
+    @Operation(summary = "检查与锁定库存")
+    @PostMapping("/checkAndLock/{orderNo}")
+    public R<String> checkAndLock(@PathVariable String orderNo, @RequestBody List<SkuLockVo> skuLockVoList) {
+        try {
+            return R.ok(productService.checkAndLock(orderNo, skuLockVoList));
+        } catch (ServiceException e) {
+            e.printStackTrace();
+            return R.ok(e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return R.ok("库存不足");
+        }
+    }
+
+
 }

@@ -83,5 +83,12 @@ public class OrderInfoController extends BaseController {
         return success(orderInfoService.submitOrder(orderForm));
     }
 
+    @Operation(summary = "获取订单信息")
+    @RequiresLogin
+    @GetMapping("getOrderInfo/{orderId}")
+    public AjaxResult getOrderInfo(@PathVariable Long orderId) {
+        OrderInfo orderInfo = orderInfoService.getById(orderId);
+        return success(orderInfo);
+    }
 
 }
