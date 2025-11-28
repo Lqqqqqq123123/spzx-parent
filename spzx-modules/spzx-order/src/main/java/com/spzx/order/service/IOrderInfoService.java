@@ -37,4 +37,8 @@ public interface IOrderInfoService extends IService<OrderInfo> {
      * @param l
      */
     void processCloseOrder(Long l);
+
+    OrderInfo getByOrderNo(String orderNo);
+
+    void processPaySucess(String orderNo);
 }

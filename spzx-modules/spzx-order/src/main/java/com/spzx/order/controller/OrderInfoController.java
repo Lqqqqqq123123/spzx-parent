@@ -91,4 +91,15 @@ public class OrderInfoController extends BaseController {
         return success(orderInfo);
     }
 
+    @Operation(summary = "根据订单号获取订单信息")
+    @InnerAuth
+    @GetMapping("getByOrderNo/{orderNo}")
+    public R<OrderInfo> getByOrderNo(@PathVariable String orderNo) {
+        OrderInfo orderInfo = orderInfoService.getByOrderNo(orderNo);
+        return R.ok(orderInfo);
+    }
+
+
+
+
 }

@@ -79,6 +79,6 @@ public class PaymentInfo extends BaseEntity {
      */
     @Excel(name = "回调信息")
     @Schema(description = "回调信息")
-    private String callbackContent;
+    private String callbackContent; // 支付宝返回的内容
 
 }

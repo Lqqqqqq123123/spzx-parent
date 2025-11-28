@@ -3,10 +3,12 @@ package com.spzx.payment.configure;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
+@RefreshScope
 public class AlipayConfig {
 
     @Value("${alipay.alipay_url}")
@@ -24,11 +26,11 @@ public class AlipayConfig {
     public final static String sign_type="RSA2";
 
 
-    public static String return_payment_url;
+    public static String return_payment_url; // 同步通知地址：通知h5前端支付是否成功
 
-    public static  String notify_payment_url;
+    public static  String notify_payment_url; // 异步通知地址：通知我们的后端：4 10 10 1 2 6 15
 
-    public static  String return_order_url;
+    // public static  String return_order_url;
 
     public static  String alipay_public_key;
 
@@ -47,10 +49,10 @@ public class AlipayConfig {
         AlipayConfig.notify_payment_url = notify_payment_url;
     }
 
-    @Value("${alipay.return_order_url}")
-    public   void setReturn_order_url(String return_order_url) {
-        AlipayConfig.return_order_url = return_order_url;
-    }
+//    @Value("${alipay.return_order_url}")
+//    public   void setReturn_order_url(String return_order_url) {
+//        AlipayConfig.return_order_url = return_order_url;
+//    }
 
     @Bean
     public AlipayClient alipayClient(){

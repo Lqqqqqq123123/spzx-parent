@@ -488,6 +488,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
         // 解锁库存之后，删除锁定库存的缓存。以防止重复解锁库存
         this.redisTemplate.delete(dataKey);
+        this.redisTemplate.delete(key);
     }
 
 }

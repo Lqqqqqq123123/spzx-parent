@@ -66,4 +66,6 @@ public class ProductReceiver {
         channel.basicAck(message.getMessageProperties().getDeliveryTag(), false);
     }
 
+
+
 }

@@ -1,6 +1,7 @@
 package com.spzx.order.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.spzx.cart.api.RemoteCartService;
 import com.spzx.cart.api.domain.CartInfo;
@@ -279,6 +280,55 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
             rabbitService.sendMessage(MqConst.EXCHANGE_PRODUCT, MqConst.ROUTING_UNLOCK, orderInfo.getOrderNo());
         }
     }
+
+    @Override
+    public OrderInfo getByOrderNo(String orderNo) {
+        // 1. 根据订单号查询订单
+        OrderInfo orderinfo = orderInfoMapper.selectOne(new QueryWrapper<OrderInfo>().eq("order_no", orderNo));
+
+        // 2. 根据订单号查询订单项列表
+        LambdaQueryWrapper<OrderItem> wr1 = new LambdaQueryWrapper<>();
+        wr1.eq(OrderItem::getOrderId, orderinfo.getId());
+        List<OrderItem> orderItemList = orderItemMapper.selectList(wr1);
+        // 3. 封装数据
+        orderinfo.setOrderItemList(orderItemList);
+
+        return orderinfo;
+    }
+
+    /*
+    支付成功，将订单状态修改为 1 待发货
+     */
+    @Override
+    public void processPaySucess(String orderNo) {
+        // 记得判重
+        // 1. 查询订单信息
+        LambdaQueryWrapper<OrderInfo> wr = new LambdaQueryWrapper<>();
+        wr.eq(OrderInfo::getOrderNo, orderNo);
+        OrderInfo orderInfo = orderInfoMapper.selectOne(wr);
+
+        // 如果当前订单状态已经是支付成功了，那就直接返回即可
+        if(orderInfo.getOrderStatus().intValue() != 0){
+            return ;
+        }
+
+        orderInfo.setOrderStatus(1);
+        orderInfo.setUpdateTime(new Date());
+
+        // 设置支付时间
+        orderInfo.setPaymentTime(new Date());
+
+        orderInfoMapper.updateById(orderInfo);
+
+    }
+
+//    @Override
+//    public OrderInfo getByOrderNo(String orderNo) {
+//        OrderInfo orderInfo = orderInfoMapper.selectOne(new LambdaQueryWrapper<OrderInfo>().eq(OrderInfo::getOrderNo, orderNo));
+//        List <OrderItem> orderItemList = orderItemMapper.selectList(new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, orderInfo.getId()));
+//        orderInfo.setOrderItemList(orderItemList);
+//        return orderInfo;
+//    }
 
     @Transactional
     public Long saveOrder(OrderForm orderForm) {

@@ -1,7 +1,9 @@
 package com.spzx.order.api.factory;
 
+import com.spzx.common.core.domain.R;
 import com.spzx.common.core.web.domain.AjaxResult;
 import com.spzx.order.api.RemoteOrderInfoService;
+import com.spzx.order.api.domain.OrderInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.openfeign.FallbackFactory;
@@ -16,6 +18,10 @@ public class RemoteOrderInfoFallbackFactory implements FallbackFactory<RemoteOrd
         log.error("订单服务调用失败:{}", throwable.getMessage());
         return new RemoteOrderInfoService() {
 
+            @Override
+            public R<OrderInfo> getByOrderNo(String orderNo, String source) {
+                return R.fail("查询订单服务调用失败" + throwable.getMessage());
+            }
         };
     }
 }
