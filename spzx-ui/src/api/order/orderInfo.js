@@ -16,3 +16,12 @@ export function getInfo(id) {
         method: 'get'
     })
 }
+
+
+// 统计报表
+export function GetOrderStatisticsData(keywordText) {
+    return request({
+        url: `/report/getAiReport/${keywordText}`,
+        method: 'get'
+    })
+}

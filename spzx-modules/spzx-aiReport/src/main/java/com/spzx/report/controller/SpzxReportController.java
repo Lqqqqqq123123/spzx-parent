@@ -36,7 +36,7 @@ public class SpzxReportController extends BaseController {
             String groups = reportMap.get("groupTag").toString();
             Object count = reportMap.get("count");
             xList.add(groups);
-            yList.add(count);
+            yList.add(count);   
         }
         xyMap.put("xList", xList);
         xyMap.put("yList", yList);

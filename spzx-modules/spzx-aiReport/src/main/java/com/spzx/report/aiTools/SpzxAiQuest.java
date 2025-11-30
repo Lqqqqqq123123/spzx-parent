@@ -7,6 +7,7 @@ import dev.langchain4j.service.AiServices;
 public class SpzxAiQuest {
     // 初始化组件
     private static ChatModel deepseek;
+    private static ChatModel qwen;
     private static MyAssistAgent agent;
 
      public SpzxAiQuest(){
@@ -16,8 +17,14 @@ public class SpzxAiQuest {
                 .modelName(AiConst.DeepSeek)
                 .build();
 
+        qwen = OpenAiChatModel.builder()
+                .apiKey(AiConst.Api_Key)
+                .modelName(AiConst.Qwen)
+                .baseUrl(AiConst.Base_Url_Qwen)
+                .build();
+
         agent = AiServices.builder(MyAssistAgent.class).
-                chatModel(deepseek)
+                chatModel(qwen)
                 .systemMessageProvider((t) -> {
                     return PromptGenerator.prompt;
                 })
